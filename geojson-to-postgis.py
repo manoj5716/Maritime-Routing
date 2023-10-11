@@ -72,6 +72,9 @@ class RoutingManager:
 
         self.CREATE_TOPOLOGY = f"SELECT pgr_createTopology('{self.table_name}', 0.00001, 'geom');"
 
+        self.COUNT_CONNECTIVITY_COMPONENTS = f"SELECT COUNT(DISTINCT component) FROM pgr_connectedComponents(" \
+                                             f"'SELECT id, source, target, cost, reverse_cost FROM {self.table_name}')"
+
     def truncate_routing_edges_tbl_if_exists(self, con):
         with con:
             with con.cursor() as cursor:
@@ -116,6 +119,17 @@ class RoutingManager:
                 cursor.execute(self.CREATE_TOPOLOGY)
             con.commit()
 
+    def check_graph_connectivity(self, con):
+        with con:
+            with con.cursor() as cursor:
+                cursor.execute(self.COUNT_CONNECTIVITY_COMPONENTS)
+                connected = cursor.fetchone()[0]
+                if 1 == connected:
+                    print("ALL EDGES CONNECTED IN 1 COMPONENT")
+                else:
+                    print("EDGES ARE CONNECTED IN MANY COMPONENTS")
+                return connected
+
     def run_flow(self):
         con = connect_to_dbms()
         try:
@@ -127,6 +141,7 @@ class RoutingManager:
                 self.import_routing_geometry_into_edges_table(con, data)
             self.set_cost_into_edges_table(con)
             self.create_topology(con)
+            self.check_graph_connectivity(con)
 
         except Exception as e:
             print(e)
