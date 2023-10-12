@@ -8,6 +8,7 @@ import json
 import sys
 import logging
 import configparser
+from tzwhere import tzwhere
 
 
 config = configparser.ConfigParser()
@@ -34,23 +35,7 @@ def connect_to_dbms():
                             port=int(config['PostGIS.LogIn']['Port']))
 
 
-# def check_db_exists(cursor, drop_db=False):
-#     db_name = config['PostGIS.LogIn']['RoutingDB']
-#     if drop_db:
-#         cursor.execute(f'DROP DATABASE IF EXISTS {db_name}')
-#     cursor.execute(f"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '{db_name}'")
-#     exists = cursor.fetchone()
-#     return exists
-#
-#
-# def create_db(cursor):
-#     db_name = config['PostGIS.LogIn']['RoutingDB']
-#     cursor.execute(f'CREATE DATABASE {db_name}')
-#     cursor.execute(f'CREATE EXTENSION postgis')
-#     cursor.execute(f'CREATE EXTENSION pgrouting;')
-
-
-class RoutingManager:
+class RoutingBuilder:
 
     def __init__(self):
 
@@ -151,6 +136,46 @@ class RoutingManager:
             con.close()
 
 
+def normalize_coordinate(lon, lat):
+    lon = lon % 360
+    lat = lat % 360
+    lon = -180 + (lon - 180) if lon > 180 else 180 + (lon + 180) if lon < -180 else lon
+    lat = -180 + (lat - 180) if lat > 180 else 180 + (lat + 180) if lat < -180 else lat
+    return lon, lat
+
+
+class RoutingFinder:
+    def __init__(self):
+        self.FIND_NEAREST_COORDINATE = "SELECT id, ST_X(the_geom), ST_Y(the_geom), " \
+                                       "ST_Distance(the_geom, 'SRID=4326;POINT(%s %s)'::geometry) as d " \
+                                       "FROM maritime_routes_edges_vertices_pgr ORDER BY d limit 1;"
+        self.ROUTING_ONE_TO_ONE = "SELECT * FROM pgr_Dijkstra('select id, source, target, cost, reverse_cost " \
+                                  "FROM maritime_routes_edges', %s, %s, false);"
+
+    def find_nearest_coordinate(self, con, lon, lat):
+        with con:
+            with con.cursor() as cursor:
+                n_lon, n_lat = normalize_coordinate(lon, lat)
+                cursor.execute(self.FIND_NEAREST_COORDINATE, (n_lon, n_lat))
+                v_id, v_lon, v_lat, v_distance = cursor.fetchone()[0:2]
+                tz = tzwhere.tzwhere()
+                timezone_str = tz.tzNameAt(v_lat, v_lon)  # Seville coordinates
+
+                data = {'is_valid': v_distance == 0,
+                        'suggestion': [v_lon, v_lat],
+                        'normalized': [n_lon, n_lat],
+                        'moved_by': v_distance,
+                        'validatedLatlng': {"lat": v_lat, "lng": v_lon},
+                        # real ECA should be retrieved
+                        'eca': False, 'eca_name': 'No ECA',
+                        'timezone_of_validated': timezone_str}
+                return json.dumps(data)
+
+    def do_one_to_one_routing(self, con, v1, v2):
+        with con:
+            with con.cursor() as cursor:
+                cursor.execute(self.ROUTING_ONE_TO_ONE, (v1, v2))
+
 # def create_ports_tbl():
 #     pass
 #
@@ -166,6 +191,6 @@ class RoutingManager:
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
-    routing_mngr = RoutingManager()
-    routing_mngr.run_flow()
+    routing_bldr = RoutingBuilder()
+    routing_bldr.run_flow()
 
