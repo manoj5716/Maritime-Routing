@@ -67,8 +67,10 @@ class RoutingManager:
         self.ROUTING_INSERT_STATEMENT = f'INSERT INTO {self.table_name} (id, geom) ' \
                                         f'VALUES (%s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326));'
 
+        # use a spheroid model(ellipsoid) for greater distance accuracy, use_spheroid = false
         self.UPDATE_COST = f'UPDATE {self.table_name} ' \
-                           f'SET cost = ST_length(geom) * 2, reverse_cost = ST_length(geom) * 2;'
+                           f'SET cost = ST_length(geom::geography, false), ' \
+                           f'reverse_cost = ST_length(geom::geography, false);'
 
         self.CREATE_TOPOLOGY = f"SELECT pgr_createTopology('{self.table_name}', 0.00001, 'geom');"
 
