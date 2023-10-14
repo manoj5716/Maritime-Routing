@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 import operator
 import psycopg2
 import psycopg2.extras
@@ -6,10 +7,13 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import io
 import json
 import sys
+import os
 import logging
 import configparser
 from tzwhere import tzwhere
 
+
+SCRIPT_PATH = os.path.dirname(os.path.abspath(__file__))
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -70,6 +74,7 @@ class RoutingBuilder:
                 # if tbl exists truncate table
                 if tbl_exists:
                     cursor.execute(f'DROP TABLE {self.table_name};')
+                    print(f'TABLE {self.table_name} DROPPED')
             con.commit()
 
     def create_routing_edges_tbl(self, con):
@@ -77,6 +82,7 @@ class RoutingBuilder:
             with con.cursor() as cursor:
                 cursor.execute(self.CREATE_EDGES_TABLE)
             con.commit()
+            print(f'TABLE {self.table_name} CREATED SUCCESSFULLY')
 
     def _import_routing_feature_from_json(self, cursor, feature_data):
         if feature_data.get('type') == 'FeatureCollection':
@@ -93,18 +99,21 @@ class RoutingBuilder:
             with con.cursor() as cursor:
                 self._import_routing_feature_from_json(cursor, feature_data)
             con.commit()
+            print(f'GEOJSON GEOSPATIAL FEATURES IMPORTED INTO TABLE {self.table_name} SUCCESSFULLY')
 
     def set_cost_into_edges_table(self, con):
         with con:
             with con.cursor() as cursor:
                 cursor.execute(self.UPDATE_COST)
             con.commit()
+            print(f'FIELDS COST AND TRAVERSED COST UPDATED IN TABLE {self.table_name} SUCCESSFULLY')
 
     def create_topology(self, con):
         with con:
             with con.cursor() as cursor:
                 cursor.execute(self.CREATE_TOPOLOGY)
             con.commit()
+            print(f'TOPOLOGY CREATED SUCCESSFULLY')
 
     def check_graph_connectivity(self, con):
         with con:
@@ -116,6 +125,34 @@ class RoutingBuilder:
                 else:
                     print("EDGES ARE CONNECTED IN MANY COMPONENTS")
                 return connected
+
+    @staticmethod
+    def create_get_nearest_vertex_id_func(con):
+        with con:
+            with con.cursor() as cursor:
+                cursor.execute(open(os.path.join(SCRIPT_PATH, "create_get_nearest_vertex_id_func.sql"), "r").read())
+            con.commit()
+            print(f'get_nearest_vertex_id FUNCTION CREATED SUCCESSFULLY')
+
+    @staticmethod
+    # create route_func with 2 parameters v_start, v_end
+    def create_get_optimal_one_to_one_route_func_2(con):
+        with con:
+            with con.cursor() as cursor:
+                cursor.execute(open(os.path.join(SCRIPT_PATH,
+                                                 "create_get_optimal_one_to_one_route_func_2.sql"), "r").read())
+            con.commit()
+            print(f'get_optimal_one_to_one_route_func 2 PARAMETERS FUNCTION CREATED SUCCESSFULLY')
+
+    @staticmethod
+    # create route_func with 4 parameters lon1, lat1, lon2, lat2
+    def create_get_optimal_one_to_one_route_func_4(con):
+        with con:
+            with con.cursor() as cursor:
+                cursor.execute(open(os.path.join(SCRIPT_PATH,
+                                                 "create_get_optimal_one_to_one_route_func_4.sql"), "r").read())
+            con.commit()
+            print(f'get_optimal_one_to_one_route_func 4 PARAMETERS FUNCTION CREATED SUCCESSFULLY')
 
     def run_flow(self):
         con = connect_to_dbms()
@@ -130,6 +167,9 @@ class RoutingBuilder:
             self.create_topology(con)
             self.check_graph_connectivity(con)
 
+            self.create_get_nearest_vertex_id_func(con)
+            self.create_get_optimal_one_to_one_route_func_2(con)
+            self.create_get_optimal_one_to_one_route_func_4(con)
         except Exception as e:
             print(e)
         finally:
